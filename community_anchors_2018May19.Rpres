@@ -1,0 +1,454 @@
+Analysing the Development Trust Association Scotland footprint
+========================================================
+author: Jeremy H. Kidwell, PhD
+date: 18 May 2018
+autosize: true
+
+Provisional analysis compiled by Dr Jeremy Kidwell for DTAS. 
+Based on live, open, and reproducible code!
+
+
+Outline for the day
+========================================================
+
+```{r, echo=FALSE, eval=TRUE, include=FALSE}
+# Some opening notes for the stray reader of this code
+# This is pretty messy stuff, pulled together in some haste. 
+# I'm aware that there are tons of places where repeated code 
+# should be set up as libraries - feel free to put in a 
+# pull request to this effect!
+#
+# I'm also aware that my method of creating a table of quantiles 
+# is massively inefficient. I'm sure there's a brisk way to 
+# do this, but couldn't find anything workable.
+# As always, code review much appreciated and comments welcome!
+
+# load libraries needed for operations
+require(sp) # required for rgdal
+require(rgdal) # required for readOGR
+require(GISTools) # required for poly.counts
+require(maptools) # required for spTransform
+require(RColorBrewer) # required for pretty colours
+require(xtable) # required for xtables done below
+require(RCurl) # required for dataset downloads using curl
+
+# Preliminaries------------------------------------------------
+# Define CRS for here and later--------------------------------
+wgs84 = '+proj=longlat +datum=WGS84'
+bng = "+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000
++y_0=-100000 +datum=OSGB36 +units=m +no_defs +ellps=airy
++towgs84=446.448,-125.157,542.060,0.1502,0.2470,0.8421,-20.4894"
+setwd("~/Dropbox/writing_articles_chapters/201805_dtas")
+
+# Create data directory if needed:
+if (dir.exists("data") == FALSE) {
+  dir.create("data")
+}
+
+if (dir.exists("derivedData") == FALSE) {
+  dir.create("derivedData")
+}
+
+if (dir.exists("figures") == FALSE) {
+  dir.create("figures")
+}
+
+# 1. Load in datasets
+
+# read in polygon for UK admin boundaries----------------------
+admin <- readOGR("data", "scotland_laulevel1_2011")
+# transform CRS to wgs84 for comparisons below
+admin.wgs <- spTransform(admin, CRS("+init=epsg:4326"))
+
+# read in relevant polygons, Scottish Index of Multiple deprivation (already WGS84)
+http://sedsh127.sedsh.gov.uk/Atom_data/ScotGov/ZippedShapefiles/SG_SIMD_2016.zip
+simd <- readOGR("data", "sg_simd_2016")
+
+# Load dtas dataset------------------------------------
+dtas <- read.csv("data/dtas_4.0.csv")
+coordinates(dtas) <- c("X", "Y")
+proj4string(dtas) <- proj4string(simd)
+# transform CRS to wgs84 for comparisons below
+dtas.wgs <- spTransform(dtas, CRS("+init=epsg:4326"))
+
+# Load GWSF dataset ----------------------
+gwsf <- readOGR("data", "gwsf_groups_gb_sct")
+# transform CRS on admin (from BNG) to wgs84 for comparisons below
+gwsf.wgs <- spTransform(gwsf, CRS("+init=epsg:4326"))
+
+
+# Simplify to third decimal point for accurate representation of coordinate precision
+# JK Note: TBD!
+```
+
+- Representation in areas of deprivation
+- Mapping community anchors
+- Bonus: social media and DTAS
+
+
+About the research
+========================================================
+
+- Begun in 2014 at Ediburgh Uni, now Birmingham
+- Driving question: How do we improve visibility and efficacy of community-level work?
+  - Generating (open access) data sets
+  - Consultancy as participatory research
+  - Connecting researchers, policymakers, third sector
+
+Work to Date
+========================================================
+
+- Ongoing research partnerships
+  - Scottish Community Alliance
+  - DTAS (239 sites)
+  - Eco-Congregation Scotland (~400) and Eco-Church England & Wales (~2500)
+  - Christians Against Poverty (600)
+  - Ecolise (European network of networks)
+- Additional data sets produced for
+  - GWSF, City Farms & Gardens, Community Land Scotland, Church(es) of Scotland, England & Wales...
+- Digital "geospatial intelligence" Carto platform up and running
+)
+```{r, echo=FALSE, eval=TRUE, include=TRUE}
+
+
+```
+
+1. Focus: DTAS and Deprivation
+========================================================
+
+```{r, echo=FALSE, eval=TRUE, include=TRUE}
+# Part I - Generate tables and plots based on SIMD ranks
+
+# Subset SIMD for bottom 5/10/15% by overall rank
+simd.bottom15r <- simd[ which(simd$rank < 1047),]
+simd.bottom10r <- simd[ which(simd$rank < 698),]
+simd.bottom5r <- simd[ which(simd$rank < 349),]
+
+# Subset SIMD for bottom 5/10/15% by income domain rank
+simd.bottom15incr <- simd[ which(simd$incrank < 1047),]
+simd.bottom10incr <- simd[ which(simd$incrank < 698),]
+simd.bottom5incr <- simd[ which(simd$incrank < 349),]
+
+# Subset SIMD for bottom 5/10/15% by income domain rank
+simd.bottom15empr <- simd[ which(simd$emprank < 1047),]
+simd.bottom10empr <- simd[ which(simd$emprank < 698),]
+simd.bottom5empr <- simd[ which(simd$emprank < 349),]
+
+# Now generate subsetted SPDF which only includes dtas points which are
+# located in remaining (subsetted) SIMD polygons
+dtas.simd.bottom15r <- dtas[!is.na(over(dtas, geometry(simd.bottom15r))),]
+dtas.simd.bottom10r <- dtas[!is.na(over(dtas, geometry(simd.bottom10r))),]
+dtas.simd.bottom5r <- dtas[!is.na(over(dtas, geometry(simd.bottom5r))),]
+
+# Add data from relevant SIMD polygons for each row in dtas DF
+dtas.simd.bottom15r@data <- cbind(dtas.simd.bottom15r@data,over(dtas.simd.bottom15r,simd.bottom15r))
+dtas.simd.bottom10r@data <- cbind(dtas.simd.bottom10r@data,over(dtas.simd.bottom10r,simd.bottom10r))
+dtas.simd.bottom5r@data <- cbind(dtas.simd.bottom5r@data,over(dtas.simd.bottom5r,simd.bottom5r))
+
+# Convert to dataframe, strip out unnecessary columns, and sort by rank
+dtas.simd.bottom15r.tidy <- data.frame("name"=dtas.simd.bottom15r$name,"rank"=dtas.simd.bottom15r$rank)
+dtas.simd.bottom15r.tidy <- dtas.simd.bottom15r.tidy[with(dtas.simd.bottom15r.tidy, order(rank)), ]
+dtas.simd.bottom10r.tidy <- data.frame("name"=dtas.simd.bottom10r$name,"rank"=dtas.simd.bottom10r$rank)
+dtas.simd.bottom10r.tidy <- dtas.simd.bottom10r.tidy[with(dtas.simd.bottom10r.tidy, order(rank)), ]
+dtas.simd.bottom5r.tidy <- data.frame("name"=dtas.simd.bottom5r$name,"rank"=dtas.simd.bottom5r$rank)
+dtas.simd.bottom5r.tidy <- dtas.simd.bottom5r.tidy[with(dtas.simd.bottom5r.tidy, order(rank)), ]
+
+# plot(admin)
+plot(dtas)
+plot(dtas.simd.bottom15r, add = TRUE, col="Red")
+plot(admin, border="grey", lwd=0.25, add = TRUE)
+
+# Export tables to PDF, with titles and plots ahead of each table (admin boundaries, add all points, add subset in red)
+# End Part I
+```
+
+DTAS Groups Located within 15% most deprived areas
+========================================================
+
+```{r, echo=FALSE, eval=TRUE, include=TRUE}
+
+xt <- xtable(dtas.simd.bottom15r.tidy, caption = "table of DTAS groups in bottom 15%")
+
+print(xt,
+      type = "html",
+      tabular.environment = "longtable",
+      sanitize.colnames.function = function(x){x},
+      include.rownames = FALSE,
+      floating = FALSE)
+```
+
+Running Comparisons
+========================================================
+
+It may be useful to know the number of groups present (as above), but we can illuminate this information by testing out how frequently different types of groups appear in these areas.
+
+```{r, echo=FALSE, eval=TRUE, include=FALSE}
+# Part II - Calculate coincidence of other features
+
+# Load in POI table
+
+# I'm going to take some shortcuts here, preventing this code from being truly reproducible
+# because the poi dataset is really huge - I've already downloaded and filtered to specific codes for features
+# so code immediately below is untested. Will need to adjust below to the actual code I'm working with eventually.
+
+## Skip ==>
+# poi <- read.csv("data/poi.csv", header = FALSE, sep = "|")
+# coordinates(poi) <- c("Feature Easting", "Feature Northing")
+# proj4string(poi) <- proj4string(CRS(bng))
+## transform CRS on churches (from BNG) to wgs84 for comparisons below
+# poi.wgs <- spTransform(poi, CRS(wgs84))
+
+## subsets
+#poi.pubs <- poi[!is.na(poi[3] = "01020034")]
+#poi.chequecashing <- poi[!is.na(poi[3] = "02090142")]
+#poi.pawnbrokers <- poi[!is.na(poi[3] = "02090151")]
+#poi.worship <- poi[!is.na(poi[3] = "06340459")]
+# ==> to here for now
+
+# Load in retail data from geolytics dataset
+# from here: https://geolytix.co.uk/?retail_points
+poi.grocery <- read.csv("data/retailpoints_version11_dec17.txt", sep = "\t")
+# select useful columns
+poi.grocery <- subset(poi.grocery, select = c("retailer", "store_name", "long_wgs", "lat_wgs"))
+# convert to spdf
+coordinates(poi.grocery) <- c("long_wgs", "lat_wgs")
+proj4string(poi.grocery) <- CRS("+init=epsg:4326")
+# filter out non-Scottish data
+poi.grocery <- poi.grocery[!is.na(over(poi.grocery, geometry(admin.wgs))),]
+
+# Load in British pubs from Ordnance survey dataset
+poi.pubs <- read.csv("data/poi_pubs.csv", header = FALSE, sep = "|")
+# select useful columns
+poi.pubs <- subset(poi.pubs, select = c("V1", "V2", "V3", "V4", "V5"))
+# rename columns to tidier names
+colnames(poi.pubs) <- c("refnum", "name", "code", "x", "y")
+coordinates(poi.pubs) <- c("x", "y")
+proj4string(poi.pubs) <- CRS("+init=epsg:27700")
+# transform CRS on pubs (from BNG) to wgs84 for comparisons below
+poi.pubs.wgs <- spTransform(poi.pubs, CRS("+init=epsg:4326"))
+# filter out non-Scottish pubs
+poi.pubs.wgs <- poi.pubs.wgs[!is.na(over(poi.pubs.wgs, geometry(admin.wgs))),]
+
+# Load in check cashing from Ordnance survey dataset
+poi.checkcashing <- read.csv("data/poi_chequecashing.csv", header = FALSE, sep = "|")
+# select useful columns
+poi.checkcashing <- subset(poi.checkcashing, select = c("V1", "V2", "V3", "V4", "V5"))
+# rename columns to tidier names
+colnames(poi.checkcashing) <- c("refnum", "name", "code", "x", "y")
+coordinates(poi.checkcashing) <- c("x", "y")
+proj4string(poi.checkcashing) <- CRS("+init=epsg:27700")
+# transform CRS on pubs (from BNG) to wgs84 for comparisons below
+poi.checkcashing.wgs <- spTransform(poi.checkcashing, CRS("+init=epsg:4326"))
+# filter out non-Scottish (hah!) check cashing shops
+poi.checkcashing.wgs <- poi.checkcashing.wgs[!is.na(over(poi.checkcashing.wgs, geometry(admin.wgs))),]
+
+# Load in pawnbrokers from Ordnance survey dataset
+poi.pawnbrokers <- read.csv("data/poi_pawnbrokers.csv", header = FALSE, sep = "|")
+# select useful columns
+poi.pawnbrokers <- subset(poi.pawnbrokers, select = c("V1", "V2", "V3", "V4", "V5"))
+# rename columns to tidier names
+colnames(poi.pawnbrokers) <- c("refnum", "name", "code", "x", "y")
+coordinates(poi.pawnbrokers) <- c("x", "y")
+proj4string(poi.pawnbrokers) <- CRS("+init=epsg:27700")
+# transform CRS on pawnbrokers (from BNG) to wgs84 for comparisons below
+poi.pawnbrokers.wgs <- spTransform(poi.pawnbrokers, CRS("+init=epsg:4326"))
+# filter out non-Scottish (hah!) pawnbrokers
+poi.pawnbrokers.wgs <- poi.pawnbrokers.wgs[!is.na(over(poi.pawnbrokers.wgs, geometry(admin.wgs))),]
+
+# Load in places of worship from Ordnance survey dataset
+poi.pow <- read.csv("data/poi_pow.csv", header = FALSE, sep = "|")
+# select useful columns
+poi.pow <- subset(poi.pow, select = c("V1", "V2", "V3", "V4", "V5"))
+# rename columns to tidier names
+colnames(poi.pow) <- c("refnum", "name", "code", "x", "y")
+coordinates(poi.pow) <- c("x", "y")
+proj4string(poi.pow) <- CRS("+init=epsg:27700")
+# transform CRS on pubs (from BNG) to wgs84 for comparisons below
+poi.pow.wgs <- spTransform(poi.pow, CRS("+init=epsg:4326"))
+# filter out non-Scottish (hah!) check cashing shops
+poi.pow.wgs <- poi.pow.wgs[!is.na(over(poi.pow.wgs, geometry(admin.wgs))),]
+
+# create WGS versions of SIMD subsets from above for comparisons below
+simd.bottom15r.wgs <- spTransform(simd.bottom15r, CRS("+init=epsg:4326"))
+simd.bottom10r.wgs <- spTransform(simd.bottom10r, CRS("+init=epsg:4326"))
+simd.bottom5r.wgs <- spTransform(simd.bottom5r, CRS("+init=epsg:4326"))
+
+# Test it out with a quick plot
+# plot(poi.pubs.wgs)
+
+# run further subsetting, as above, for specific bands of simd
+grocery.simd.bottom15r.wgs <- poi.grocery[!is.na(over(poi.grocery, geometry(simd.bottom15r.wgs))),]
+grocery.simd.bottom10r.wgs <- poi.grocery[!is.na(over(poi.grocery, geometry(simd.bottom10r.wgs))),]
+grocery.simd.bottom5r.wgs <- poi.grocery[!is.na(over(poi.grocery, geometry(simd.bottom5r.wgs))),]
+
+pubs.simd.bottom15r.wgs <- poi.pubs.wgs[!is.na(over(poi.pubs.wgs, geometry(simd.bottom15r.wgs))),]
+pubs.simd.bottom10r.wgs <- poi.pubs.wgs[!is.na(over(poi.pubs.wgs, geometry(simd.bottom10r.wgs))),]
+pubs.simd.bottom5r.wgs <- poi.pubs.wgs[!is.na(over(poi.pubs.wgs, geometry(simd.bottom5r.wgs))),]
+
+pawnbrokers.simd.bottom15r.wgs <- poi.pawnbrokers.wgs[!is.na(over(poi.pawnbrokers.wgs, geometry(simd.bottom15r.wgs))),]
+checkcashing.simd.bottom15r.wgs <- poi.checkcashing.wgs[!is.na(over(poi.checkcashing.wgs, geometry(simd.bottom15r.wgs))),]
+pow.simd.bottom15r.wgs <- poi.pow.wgs[!is.na(over(poi.pow.wgs, geometry(simd.bottom15r.wgs))),]
+
+# Part II.2 Run some calculations on presence for various types of entities
+
+# Calculate total number of DTAS "community anchors" within bottom 15% 
+length(dtas.simd.bottom15r$rank) /  length(dtas$name)
+
+```
+
+Pubs
+========================================================
+
+We can compare this frequency against some other features. The ordnance survey tells us that total pubs in Scotland are: 
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(poi.pubs.wgs$name)
+```
+
+Pubs
+========================================================
+
+The total numnber of Pubs located within these deprived areas noted above is:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+# Calculate percentage of total pubs in Scotland located within bottom 15% of IMD by rank
+length(pubs.simd.bottom15r.wgs$name) / length(poi.pubs.wgs$name)
+```
+
+Churches
+========================================================
+
+To take another example, there are (according to the Ordnance Survey), the following number of places of worship in Scotland:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(poi.pow.wgs$name)  
+```
+
+Of all these, our deprived areas have: 
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+# places of worship
+length(pow.simd.bottom15r.wgs$name) / length(poi.pow.wgs$name)
+```
+
+
+Retail
+========================================================
+
+Another example we can look at is retail grocery stores. A geospatial company called GeoLytix publishes a complete set of British retailers on a regular basis. As of last November, they indicated that there were the following number of grocery stores in Scotland:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(poi.grocery$store_name)
+```
+
+
+Within our deprived areas, this represents 
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+
+# Calculate percentage of total retail grocers in Scotland 
+# located within bottom 15% of IMD by rank
+length(grocery.simd.bottom15r.wgs$store_name) / length(poi.grocery$store_name)
+# drill a bit deeper - morrisons stores
+morrisons.scotland <- poi.grocery[poi.grocery$retailer == "Morrisons", ]
+morrisons.bottom15r.scotland <- grocery.simd.bottom15r.wgs[grocery.simd.bottom15r.wgs$retailer == "Morrisons", ]
+```
+
+Retail, ctd.
+========================================================
+
+We can break this down by brand to get a more interesting indication. There are the following number of Morrison's brand stores in Scotland:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(morrisons.scotland)
+```
+
+Of these, the following percentage are located in deprived areas:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(morrisons.bottom15r.scotland$store_name) / length(morrisons.scotland)
+# sainsburys
+sainsburys.scotland <- poi.grocery[poi.grocery$retailer == "Sainsburys", ]
+sainsburys.bottom15r.scotland <- grocery.simd.bottom15r.wgs[grocery.simd.bottom15r.wgs$retailer == "Sainsburys", ]
+```
+
+Retail, ctd.
+========================================================
+
+We find the predictable contrast by turning to Sainsburys. There are the following number of Sainsburys stores in Scotland:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(sainsburys.scotland)
+```
+
+Represented in our deprived areas are just:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(sainsburys.bottom15r.scotland$store_name) / length(sainsburys.scotland)
+```
+
+Retail, ctd.
+========================================================
+
+Sadly, the best bellweather of a deprived area in Scotland isn't any of the above, but rather pawnbrokers and check cashing stores. There are the following number of pawnbrokers:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(poi.pawnbrokers.wgs$name)
+```
+
+...and check cashing stores:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(poi.checkcashing.wgs$name)
+```
+
+
+Retail, ctd.
+========================================================
+
+Representation in our areas of of deprivation is, for check cashing establishments:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(checkcashing.simd.bottom15r.wgs$name) / length(poi.checkcashing.wgs$name)
+```
+
+and pawnbrokers:
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+length(pawnbrokers.simd.bottom15r.wgs$name) / length(poi.pawnbrokers.wgs$name)
+```
+
+
+Pawnbrokers Mapped
+========================================================
+
+```{r echo=FALSE, eval=TRUE, include=TRUE}
+plot(poi.checkcashing.wgs)
+plot(checkcashing.simd.bottom15r.wgs, col="Red", add = TRUE)
+plot(admin, border="grey", lwd=0.25, add = TRUE)
+```
+
+
+Targetting possile community anchors
+========================================================
+
+I've put together two different resources for DTAS to access this data:
+
+- [On our Carto platform: a "slippy map""](https://carto.mapping.community/user/mapcomm-admin/builder/98dbb620-75d3-11e7-8dd5-005056372088/embed)
+- A table of groups (forthcoming report!)
+
+
+Discussion
+========================================================
+
+- What other kinds of data and analysis can you see being of value to you for strategic decision making?
+- Possible demos:
+  - Common Ground Map
+  - Carto Platform
+  - QGIS
+
+
+Bonus: Social Media Use
+========================================================
+
+- Research question: how do community groups use social media?
